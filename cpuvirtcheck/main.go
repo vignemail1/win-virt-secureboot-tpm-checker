@@ -247,10 +247,30 @@ func getTPMStatus() TPMStatus {
 		status.Version = specVersion
 	}
 
-	// Verifier le service TPM
-	serviceStatus, err := checkRegistryValueDWORD(`SYSTEM\CurrentControlSet\Services\TPM`, "Start")
+	// FIX: Utiliser PowerShell Get-Tpm pour obtenir l'etat exact du TPM
+	cmd := exec.Command("powershell", "-Command", "(Get-Tpm).TpmEnabled")
+	output, err := cmd.Output()
 	if err == nil {
-		status.IsEnabled = (serviceStatus == 2 || serviceStatus == 3)
+		enabled := strings.TrimSpace(string(output))
+		status.IsEnabled = (enabled == "True")
+	} else {
+		// Fallback: si le TPM est present et Ready, il est probablement active
+		if status.IsPresent && status.Ready {
+			status.IsEnabled = true
+		}
+	}
+
+	// Verifier l'activation via PowerShell
+	cmd = exec.Command("powershell", "-Command", "(Get-Tpm).TpmActivated")
+	output, err = cmd.Output()
+	if err == nil {
+		activated := strings.TrimSpace(string(output))
+		status.IsActivated = (activated == "True")
+	} else {
+		// Fallback
+		if status.IsPresent && status.Ready {
+			status.IsActivated = true
+		}
 	}
 
 	// Verifier les informations fabricant
@@ -274,10 +294,6 @@ func getTPMStatus() TPMStatus {
 	if err == nil {
 		status.IsPresent = true
 		syscall.RegCloseKey(hKey)
-	}
-
-	if status.IsPresent && !status.IsActivated {
-		status.IsActivated = status.Ready
 	}
 
 	return status
