@@ -41,7 +41,7 @@ OPTIONS:
     
     -Help         Affiche cette aide
 
-EXEMPLES:
+EXAMPLES:
     .\CPUVirtualizationCheck.ps1              # Detection standard
     .\CPUVirtualizationCheck.ps1 -ExportKeys  # Detection + export cles BitLocker
     .\CPUVirtualizationCheck.ps1 -ClearTPM    # Detection + reinitialisation TPM
@@ -168,22 +168,32 @@ function Test-IOMMU {
         
         $deviceGuard = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard" -ErrorAction SilentlyContinue
         
+        # Verifier VBS
         if ($deviceGuard.EnableVirtualizationBasedSecurity -eq 1) {
-            $computerInfo = Get-ComputerInfo -ErrorAction SilentlyContinue
-            $requiredProps = $computerInfo.DeviceGuardRequiredSecurityProperties
-            
-            if ($requiredProps -match "IOMMU" -or $requiredProps -contains "IOMMU") {
-                $iommuEnabled = $true
+            $iommuEnabled = $true
+            $details = "VBS active - IOMMU requis et probablement actif"
+        }
+        
+        # Verifier aussi via ComputerInfo
+        $computerInfo = Get-ComputerInfo -ErrorAction SilentlyContinue
+        $requiredProps = $computerInfo.DeviceGuardRequiredSecurityProperties
+        
+        if ($requiredProps -match "IOMMU" -or $requiredProps -contains "IOMMU") {
+            $iommuEnabled = $true
+            if ($details -eq "") {
                 $details = "IOMMU requis pour VBS"
             }
         }
         
+        # Verifier peripheriques DMA
         $dmaControllers = Get-PnpDevice -Class "System" -ErrorAction SilentlyContinue | 
                           Where-Object { $_.FriendlyName -match "IOMMU|DMA|AMD-Vi|VT-d" }
         
         if ($dmaControllers.Count -gt 0) {
             $iommuEnabled = $true
-            $details = "Peripheriques IOMMU detectes"
+            if ($details -eq "") {
+                $details = "Peripheriques IOMMU detectes"
+            }
         }
         
         return $iommuEnabled, $details
@@ -239,7 +249,8 @@ function Get-TPMStatus {
             
             $tpmStatus.IsEnabled = $tpmWmi.IsEnabled_InitialValue
             $tpmStatus.IsActivated = $tpmWmi.IsActivated_InitialValue
-            $tpmStatus.Ready = $tpmWmi.IsReady
+            # FIX: Conversion explicite en boolean pour IsReady
+            $tpmStatus.Ready = ($tpmWmi.IsReady -eq $true -or $tpmWmi.IsReady -eq 1)
             
             if ($tpmWmi.ManufacturerIdTxt) {
                 $tpmStatus.Manufacturer = $tpmWmi.ManufacturerIdTxt
